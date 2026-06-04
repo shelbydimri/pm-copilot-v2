@@ -1,6 +1,6 @@
 # PM Copilot — AI-powered JIRA toolkit
 
-Two CLI tools that replace common PM busywork: sprint summaries and ticket drafting, powered by Claude.
+Three CLI tools that replace common PM busywork: sprint summaries, ticket drafting, and Slack digests — powered by Claude.
 
 ---
 
@@ -15,6 +15,15 @@ Two CLI tools that replace common PM busywork: sprint summaries and ticket draft
 - You type a rough idea in plain English (e.g. "users should be able to reset their password from the login page")
 - Claude generates a structured JIRA ticket: title, issue type, priority with reasoning, description, and 3–5 testable acceptance criteria
 - Shows you a preview in the terminal for review, then creates it live in JIRA on confirmation and returns the ticket URL
+
+**Mode 3 — Slack digest** (`python pm_agent.py --slack`)
+- Runs the same sprint summary logic as Mode 1, reformats it for Slack (bold headings, `•` bullets)
+- POSTs it to a Slack channel via an incoming webhook URL stored in `.env`
+- Prints "Digest sent to Slack!" on success
+
+**Mode 3b — Scheduled digest** (`python pm_agent.py --schedule`)
+- Keeps the process alive and fires the Slack digest automatically every Monday at 09:00
+- Uses Python's `schedule` library — no cron setup required
 
 ---
 
@@ -139,6 +148,41 @@ Create this in JIRA? (y/n): y
 [Story Drafter] Done!  https://saranshsworkspace-35970721.atlassian.net/browse/KAN-12
 ```
 
+### Mode 3 — Slack digest
+
+```
+$ python pm_agent.py --slack
+
+[Slack Digest] Fetching issues from JIRA project: KAN …
+[Slack Digest] Fetched 8 issue(s). Sending to Claude for analysis …
+[Slack Digest] Posting to Slack …
+[Slack Digest] Digest sent to Slack!
+```
+
+Posted to Slack:
+
+```
+📋 *AI PM Sprint Digest — KAN | 8 issues*
+
+*Top 3 Priorities Right Now*
+
+• *KAN-1 – Build Claude API Integration* _(In Progress)_: Core engine of the sprint — primary focus until Done.
+• *KAN-5 – Test Sprint Summary Output Quality* _(In Review)_: Closest to Done, pull it across the line today.
+• *KAN-2 – Design Prompt Template* _(To Do)_: Hidden dependency on KAN-1; start in parallel now.
+
+*Blockers & Risks*
+
+• No assignees on any tickets — ownership is the single fastest fix for velocity loss.
+• KAN-2 should be ahead of KAN-1, not behind it. Risk of rework if sequence isn't corrected.
+• KAN-7 (Rate Limiting) unstarted — shipping without it creates a fragile integration.
+
+*Suggested Next Actions*
+
+• Assign every ticket — even self-assign on a solo project.
+• Close KAN-5 today: assign a reviewer and get it to Done.
+• Timebox KAN-2 to a few hours so KAN-1 has a stable prompt target.
+```
+
 ---
 
 ## Tech stack
@@ -147,7 +191,8 @@ Create this in JIRA? (y/n): y
 |---|---|
 | Language | Python 3.11 |
 | AI | Claude API — `claude-sonnet-4-6` (Anthropic) |
-| Integrations | JIRA REST API v3 |
+| Integrations | JIRA REST API v3, Slack Incoming Webhooks |
+| Scheduling | `schedule` library |
 | Config | `python-dotenv` |
 
 ---
@@ -165,12 +210,15 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 # Fill in ANTHROPIC_API_KEY, JIRA_EMAIL, JIRA_API_TOKEN
+# For Slack modes, also add SLACK_WEBHOOK_URL
 ```
 
 **3. Run**
 ```bash
-python pm_agent.py          # sprint summary
-python pm_agent.py --draft  # story drafter
+python pm_agent.py            # sprint summary
+python pm_agent.py --draft    # story drafter
+python pm_agent.py --slack    # send digest to Slack now
+python pm_agent.py --schedule # post to Slack every Monday at 09:00
 ```
 
 ---
