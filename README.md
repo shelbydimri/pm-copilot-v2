@@ -1,6 +1,6 @@
 # PM Copilot — AI-powered JIRA toolkit
 
-Three CLI tools that replace common PM busywork: sprint summaries, ticket drafting, and Slack digests — powered by Claude.
+Four CLI tools that replace common PM busywork: sprint summaries, ticket drafting, Slack digests, and metrics anomaly detection — powered by Claude.
 
 ---
 
@@ -24,6 +24,12 @@ Three CLI tools that replace common PM busywork: sprint summaries, ticket drafti
 **Mode 3b — Scheduled digest** (`python pm_agent.py --schedule`)
 - Keeps the process alive and fires the Slack digest automatically every Monday at 09:00
 - Uses Python's `schedule` library — no cron setup required
+
+**Mode 4 — Metrics anomaly detector** (`python pm_agent.py --metrics`)
+- Loads `metrics.json` (current week vs previous week; mirrors GA4 + Mixpanel API structure)
+- Claude calculates % change for each metric, classifies each as **Critical** (>20% wrong direction), **Warning** (10–20%), or **Positive** (>10% right direction), and suggests a root cause and recommended action for each
+- Produces an overall health score 0–100 and prints a full anomaly report in the terminal
+- Automatically sends a Slack alert if any Critical anomalies are found — no extra flag needed
 
 ---
 
@@ -183,6 +189,73 @@ Posted to Slack:
 • Timebox KAN-2 to a few hours so KAN-1 has a stable prompt target.
 ```
 
+### Mode 4 — Metrics anomaly detector
+
+```
+$ python pm_agent.py --metrics
+
+[Metrics] Loading metrics.json …
+[Metrics] Analysing 2025-W23 data for AI Workflow Agent …
+
+======================================================================
+  METRICS ANOMALY REPORT  |  AI Workflow Agent  |  2025-W23
+======================================================================
+
+  Health Score : 34 / 100
+  Summary      : Severe product regression this week — DAU, velocity,
+                 and resolution rate all collapsed while bugs and API
+                 errors spiked sharply.
+
+  Anomalies detected: 6
+
+  [CRITICAL] daily_active_users
+    Change  : ▼ 21.5%  (1580 → 1240)
+    Cause   : Likely caused by a degraded onboarding or activation flow
+              reducing new user retention.
+    Action  : Audit the activation funnel in GA4 for drop-off points
+              introduced this week.
+
+  [CRITICAL] api_error_rate
+    Change  : ▲ 166.7%  (0.03 → 0.08)
+    Cause   : A recent deployment likely introduced a regression in an
+              API endpoint under moderate load.
+    Action  : Review error logs and recent deploys; rollback or hotfix
+              the offending change immediately.
+
+  [CRITICAL] sprint_velocity
+    Change  : ▼ 25.0%  (24 → 18)
+    Cause   : Team capacity loss or a high volume of unplanned work
+              (bugs, incidents) crowding out sprint tickets.
+    Action  : Hold a quick retrospective; identify what pulled the team
+              off planned work and shield next sprint accordingly.
+
+  [WARNING] ticket_resolution_rate
+    Change  : ▼ 17.3%  (0.81 → 0.67)
+    Cause   : Correlated with velocity drop — fewer tickets completed
+              as a share of those attempted.
+    Action  : Triage open tickets and close or defer anything that
+              isn't sprint-critical.
+
+  [WARNING] session_duration_avg_mins
+    Change  : ▼ 22.0%  (4.1 → 3.2)
+    Cause   : Users are finding less value per session, possibly due to
+              reliability issues surfaced by the API error spike.
+    Action  : Check if session drop correlates temporally with the API
+              error increase.
+
+  [POSITIVE] bug_open_count
+    Change  : ▲ 75.0%  (8 → 14)
+    Cause   : Bug count increase is directionally bad here despite the
+              Positive label — flag for immediate triage.
+    Action  : Assign owners to all 6 new bugs and assess severity
+              before next sprint planning.
+
+======================================================================
+
+[Metrics] 3 Critical anomaly/anomalies found — sending Slack alert …
+[Metrics] Slack alert sent!
+```
+
 ---
 
 ## Tech stack
@@ -191,7 +264,7 @@ Posted to Slack:
 |---|---|
 | Language | Python 3.11 |
 | AI | Claude API — `claude-sonnet-4-6` (Anthropic) |
-| Integrations | JIRA REST API v3, Slack Incoming Webhooks |
+| Integrations | JIRA REST API v3, Slack Incoming Webhooks, GA4-compatible metrics |
 | Scheduling | `schedule` library |
 | Config | `python-dotenv` |
 
@@ -219,6 +292,7 @@ python pm_agent.py            # sprint summary
 python pm_agent.py --draft    # story drafter
 python pm_agent.py --slack    # send digest to Slack now
 python pm_agent.py --schedule # post to Slack every Monday at 09:00
+python pm_agent.py --metrics  # metrics anomaly report
 ```
 
 ---
