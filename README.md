@@ -55,10 +55,10 @@ Pulls all issues from a JIRA project and uses Claude to generate a structured, a
 
 | Status | Tickets |
 |---|---|
-| ✅ Done | KAN-3 (JIRA Auth), KAN-8 (.env / Secrets) |
-| 🔄 Moving | KAN-1 (Claude Integration — In Progress) |
-| ⚠️ Needs Attention | KAN-5 (In Review, no reviewer assigned) |
-| 🧊 Not Started | KAN-2, KAN-4, KAN-6, KAN-7 |
+| **Done** | KAN-3 (JIRA Auth), KAN-8 (.env / Secrets) |
+| **Moving** | KAN-1 (Claude Integration — In Progress) |
+| **Needs Attention** | KAN-5 (In Review, no reviewer assigned) |
+| **Not Started** | KAN-2, KAN-4, KAN-6, KAN-7 |
 
 Four of eight tickets haven't been started. With KAN-2 being a dependency on active work,
 the backlog needs to be pulled into motion immediately.
