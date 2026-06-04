@@ -1,19 +1,26 @@
-# PM Copilot — AI-powered sprint summariser for JIRA
+# PM Copilot — AI-powered JIRA toolkit
 
-Pulls all issues from a JIRA project and uses Claude to generate a structured, actionable sprint summary in seconds.
+Two CLI tools that replace common PM busywork: sprint summaries and ticket drafting, powered by Claude.
 
 ---
 
 ## What it does
 
+**Mode 1 — Sprint summary** (`python pm_agent.py`)
 - Fetches all issues from a JIRA project via the REST API v3 (summary, status, type, priority, assignee)
 - Sends them to Claude with a PM-focused prompt and gets back a structured analysis
 - Surfaces top priorities, blockers, stalled work, and concrete next actions for the team
-- Runs as a single CLI command — no dashboard, no config UI, no friction
+
+**Mode 2 — Story drafter** (`python pm_agent.py --draft`)
+- You type a rough idea in plain English (e.g. "users should be able to reset their password from the login page")
+- Claude generates a structured JIRA ticket: title, issue type, priority with reasoning, description, and 3–5 testable acceptance criteria
+- Shows you a preview in the terminal for review, then creates it live in JIRA on confirmation and returns the ticket URL
 
 ---
 
 ## Sample output
+
+### Mode 1 — Sprint summary
 
 ```
 ======================================================================
@@ -89,6 +96,49 @@ pulled forward urgently.*
 ----------------------------------------------------------------------
 ```
 
+### Mode 2 — Story drafter
+
+```
+$ python pm_agent.py --draft
+
+[Story Drafter] Describe your idea in plain English.
+  Example: 'users should be able to reset their password from the login page'
+
+> users should be able to reset their password from the login page
+
+[Story Drafter] Generating ticket …
+
+======================================================================
+  GENERATED TICKET PREVIEW
+======================================================================
+
+  Title       : Add Password Reset Flow from Login Page
+  Type        : Story
+  Priority    : High  —  Password reset is a critical authentication feature
+                that directly impacts user access and account security.
+
+  Description :
+  Users currently have no self-service way to recover account access when
+  they forget their password. This story adds a password reset flow initiated
+  from the login page, allowing users to receive a secure reset link via email
+  and set a new password without contacting support.
+
+  Acceptance Criteria:
+    1. A "Forgot password?" link is visible on the login page below the sign-in form
+    2. Clicking the link prompts the user to enter their registered email address
+    3. A password reset email is sent within 60 seconds of the request
+    4. The reset link expires after 24 hours and can only be used once
+    5. After a successful reset, the user is redirected to login with a confirmation message
+
+======================================================================
+
+Create this in JIRA? (y/n): y
+
+[Story Drafter] Creating ticket in JIRA …
+
+[Story Drafter] Done!  https://saranshsworkspace-35970721.atlassian.net/browse/KAN-12
+```
+
 ---
 
 ## Tech stack
@@ -119,7 +169,8 @@ cp .env.example .env
 
 **3. Run**
 ```bash
-python pm_agent.py
+python pm_agent.py          # sprint summary
+python pm_agent.py --draft  # story drafter
 ```
 
 ---
