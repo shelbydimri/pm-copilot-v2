@@ -16,6 +16,12 @@ Slack digest  : python pm_agent.py --slack
 Scheduled     : python pm_agent.py --schedule
   Runs the Slack digest automatically every Monday at 09:00 and keeps
   the process alive to fire on subsequent weeks.
+
+Metrics       : python pm_agent.py --metrics
+  Loads metrics.json, sends current vs previous week data to Claude for
+  anomaly detection (% change, Critical/Warning/Positive flags, root
+  cause, recommended action, health score 0-100). Prints a report and
+  automatically sends a Slack alert if any Critical anomalies are found.
 """
 
 import os
@@ -45,6 +51,7 @@ SLACK_WEBHOOK_URL  = os.getenv("SLACK_WEBHOOK_URL")
 JIRA_DOMAIN       = "saranshsworkspace-35970721.atlassian.net"
 JIRA_PROJECT_KEY  = "KAN"
 CLAUDE_MODEL      = "claude-sonnet-4-6"
+METRICS_FILE      = "metrics.json"
 
 # ─── Validation ───────────────────────────────────────────────────────────────
 
@@ -192,6 +199,24 @@ def create_jira_ticket(ticket: dict) -> str | None:
     key = response.json().get("key")
     return f"https://{JIRA_DOMAIN}/browse/{key}"
 
+# ─── Metrics — load ──────────────────────────────────────────────────────────
+
+# Data source: Mock dataset mirroring GA4 + Mixpanel API structure
+# To connect real GA4: replace load_metrics() with GA4 Data API v1 call
+# GA4 property ID and credentials go in .env as GA4_PROPERTY_ID and GOOGLE_APPLICATION_CREDENTIALS
+
+def load_metrics() -> dict:
+    """Load the metrics snapshot from METRICS_FILE. Exits with a clear message if missing."""
+    try:
+        with open(METRICS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"[error] {METRICS_FILE} not found. Create it or copy metrics.json.example.")
+        sys.exit(1)
+    except json.JSONDecodeError as exc:
+        print(f"[error] Could not parse {METRICS_FILE}: {exc}")
+        sys.exit(1)
+
 # ─── Claude — sprint summary ──────────────────────────────────────────────────
 
 SUMMARY_SYSTEM_PROMPT = (
@@ -312,6 +337,88 @@ Rules:
         print(f"[error] Could not parse Claude's response as JSON:\n{raw}")
         return None
 
+# ─── Claude — anomaly detector ───────────────────────────────────────────────
+
+ANOMALY_SYSTEM_PROMPT = (
+    "You are a senior data analyst and product manager. "
+    "You receive product metrics for two consecutive weeks and identify anomalies. "
+    "You always respond with a single valid JSON object and nothing else — "
+    "no markdown fences, no explanation, no preamble."
+)
+
+
+def generate_anomaly_report(metrics: dict) -> dict | None:
+    """
+    Send current vs previous week metrics to Claude and get back a structured
+    anomaly report with per-metric severity flags and an overall health score.
+
+    Claude determines the 'good' direction for each metric from domain knowledge
+    (e.g. higher DAU is good, higher bug count is bad), then classifies:
+      Critical  — > 20% change in the wrong direction
+      Warning   — 10-20% change in the wrong direction
+      Positive  — > 10% change in the right direction
+    """
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    user_message = f"""Analyse this week-over-week product metrics snapshot for anomalies:
+
+{json.dumps(metrics, indent=2)}
+
+Respond with ONLY a JSON object in this exact format (no markdown, no extra text):
+{{
+  "week": "the week field from the input",
+  "product": "the product field from the input",
+  "health_score": 0,
+  "health_summary": "one sentence overall health assessment",
+  "anomalies": [
+    {{
+      "metric": "metric_name",
+      "current": 0,
+      "previous": 0,
+      "pct_change": 0.0,
+      "severity": "Critical",
+      "root_cause": "one sentence likely explanation",
+      "recommended_action": "one sentence concrete next step"
+    }}
+  ]
+}}
+
+Rules:
+- health_score is an integer 0-100 reflecting overall product health this week
+- pct_change is rounded to one decimal place; negative means decline
+- severity must be exactly one of: Critical, Warning, Positive
+- Only include metrics with > 10% change in either direction; omit stable metrics
+- Use domain knowledge to determine which direction is "good" for each metric
+  (e.g. lower api_error_rate is good, higher daily_active_users is good)
+- Critical: > 20% change in the wrong direction
+- Warning:  10-20% change in the wrong direction
+- Positive: > 10% change in the right direction
+- Order anomalies: Critical first, then Warning, then Positive"""
+
+    response = client.messages.create(
+        model=CLAUDE_MODEL,
+        max_tokens=1200,
+        system=[
+            {
+                "type": "text",
+                "text": ANOMALY_SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+        messages=[{"role": "user", "content": user_message}],
+    )
+
+    raw = response.content[0].text.strip()
+
+    if raw.startswith("```"):
+        raw = raw.strip("`").lstrip("json").strip()
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        print(f"[error] Could not parse Claude's anomaly report as JSON:\n{raw}")
+        return None
+
 # ─── Output helpers ───────────────────────────────────────────────────────────
 
 def print_summary(summary: str, issue_count: int) -> None:
@@ -342,6 +449,39 @@ def print_ticket_preview(ticket: dict) -> None:
         print(f"    {i}. {ac}")
     print(f"\n{'=' * width}")
 
+SEVERITY_ICON = {"Critical": "[CRITICAL]", "Warning": "[WARNING]", "Positive": "[POSITIVE]"}
+
+
+def print_anomaly_report(report: dict) -> None:
+    """Render the anomaly report with health score and per-metric findings."""
+    width = 70
+    anomalies = report.get("anomalies", [])
+    score     = report.get("health_score", "?")
+    week      = report.get("week", "")
+    product   = report.get("product", "")
+
+    print(f"\n{'=' * width}")
+    print(f"  METRICS ANOMALY REPORT  |  {product}  |  {week}")
+    print(f"{'=' * width}")
+    print(f"\n  Health Score : {score} / 100")
+    print(f"  Summary      : {report.get('health_summary', '')}")
+
+    if not anomalies:
+        print(f"\n  No anomalies detected (all metrics within 10% of last week).")
+    else:
+        print(f"\n  Anomalies detected: {len(anomalies)}\n")
+        for a in anomalies:
+            icon      = SEVERITY_ICON.get(a["severity"], "")
+            direction = "▲" if a["pct_change"] > 0 else "▼"
+            print(f"  {icon} {a['metric']}")
+            print(f"    Change  : {direction} {abs(a['pct_change'])}%  "
+                  f"({a['previous']} → {a['current']})")
+            print(f"    Cause   : {a['root_cause']}")
+            print(f"    Action  : {a['recommended_action']}")
+            print()
+
+    print(f"{'=' * width}\n")
+
 # ─── Slack ────────────────────────────────────────────────────────────────────
 
 def format_summary_for_slack(summary: str, issue_count: int) -> str:
@@ -369,6 +509,30 @@ def format_summary_for_slack(summary: str, issue_count: int) -> str:
     body = "\n".join(lines).strip()
     header = f":clipboard: *AI PM Sprint Digest — {JIRA_PROJECT_KEY} | {issue_count} issues*\n\n"
     return header + body
+
+
+def format_anomalies_for_slack(report: dict) -> str:
+    """Build a Slack alert message containing only Critical anomalies."""
+    criticals = [a for a in report.get("anomalies", []) if a["severity"] == "Critical"]
+    week      = report.get("week", "")
+    product   = report.get("product", "")
+    score     = report.get("health_score", "?")
+
+    lines = [
+        f":rotating_light: *Metrics Alert — {product} | {week}*",
+        f"Health Score: *{score}/100*  —  {report.get('health_summary', '')}",
+        "",
+        "*Critical Anomalies:*",
+    ]
+    for a in criticals:
+        direction = "▲" if a["pct_change"] > 0 else "▼"
+        lines.append(
+            f"• *{a['metric']}*  {direction} {abs(a['pct_change'])}%"
+            f"  ({a['previous']} → {a['current']})"
+        )
+        lines.append(f"  _Cause:_ {a['root_cause']}")
+        lines.append(f"  _Action:_ {a['recommended_action']}")
+    return "\n".join(lines)
 
 
 def send_slack_digest(text: str) -> bool:
@@ -478,6 +642,39 @@ def run_slack_digest() -> None:
         print("[Slack Digest] Digest sent to Slack!")
 
 
+def run_metrics() -> None:
+    """Metrics mode: load metrics.json, detect anomalies via Claude, alert Slack if Critical."""
+    print(f"\n[Metrics] Loading {METRICS_FILE} …")
+    metrics = load_metrics()
+
+    print(f"[Metrics] Analysing {metrics.get('week', '')} data for {metrics.get('product', '')} …")
+
+    try:
+        report = generate_anomaly_report(metrics)
+    except anthropic.AuthenticationError:
+        print("[error] Invalid ANTHROPIC_API_KEY. Check your .env file.")
+        sys.exit(1)
+    except anthropic.APIError as exc:
+        print(f"[error] Claude API error: {exc}")
+        sys.exit(1)
+
+    if report is None:
+        sys.exit(1)
+
+    print_anomaly_report(report)
+
+    criticals = [a for a in report.get("anomalies", []) if a["severity"] == "Critical"]
+    if criticals:
+        if SLACK_WEBHOOK_URL:
+            print(f"[Metrics] {len(criticals)} Critical anomaly/anomalies found — sending Slack alert …")
+            alert_text = format_anomalies_for_slack(report)
+            if send_slack_digest(alert_text):
+                print("[Metrics] Slack alert sent!")
+        else:
+            print(f"[Metrics] {len(criticals)} Critical anomaly/anomalies found.")
+            print("          Set SLACK_WEBHOOK_URL in .env to enable automatic Slack alerts.")
+
+
 def run_schedule() -> None:
     """Schedule mode: post the Slack digest every Monday at 09:00."""
     print("[Scheduler] Starting — will post Slack digest every Monday at 09:00.")
@@ -501,6 +698,7 @@ def main() -> None:
             "  python pm_agent.py --draft    # story drafter\n"
             "  python pm_agent.py --slack    # send digest to Slack now\n"
             "  python pm_agent.py --schedule # post to Slack every Monday at 09:00\n"
+            "  python pm_agent.py --metrics  # metrics anomaly report\n"
         ),
     )
     parser.add_argument(
@@ -518,6 +716,11 @@ def main() -> None:
         action="store_true",
         help="Post the Slack digest automatically every Monday at 09:00",
     )
+    parser.add_argument(
+        "--metrics",
+        action="store_true",
+        help="Load metrics.json and run Claude anomaly detection; Slack-alerts on Critical findings",
+    )
     args = parser.parse_args()
 
     needs_slack = args.slack or args.schedule
@@ -529,6 +732,8 @@ def main() -> None:
         run_slack_digest()
     elif args.schedule:
         run_schedule()
+    elif args.metrics:
+        run_metrics()
     else:
         run_sprint_summary()
 

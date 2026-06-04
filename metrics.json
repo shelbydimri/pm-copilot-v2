@@ -1,0 +1,24 @@
+{
+  "week": "2025-W23",
+  "product": "AI Workflow Agent",
+  "metrics": {
+    "daily_active_users": 1240,
+    "session_duration_avg_mins": 3.2,
+    "ticket_resolution_rate": 0.67,
+    "sprint_velocity": 18,
+    "bug_open_count": 14,
+    "feature_adoption_rate": 0.43,
+    "onboarding_completion_rate": 0.58,
+    "api_error_rate": 0.08
+  },
+  "previous_week": {
+    "daily_active_users": 1580,
+    "session_duration_avg_mins": 4.1,
+    "ticket_resolution_rate": 0.81,
+    "sprint_velocity": 24,
+    "bug_open_count": 8,
+    "feature_adoption_rate": 0.44,
+    "onboarding_completion_rate": 0.61,
+    "api_error_rate": 0.03
+  }
+}
