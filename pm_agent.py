@@ -9,6 +9,13 @@ Default mode  : python pm_agent.py
 Story drafter : python pm_agent.py --draft
   Accepts a plain-English idea, generates a complete JIRA ticket with
   Claude, reviews it with you, then optionally creates it in JIRA.
+
+Slack digest  : python pm_agent.py --slack
+  Runs the sprint summary and posts it to a Slack channel via webhook.
+
+Scheduled     : python pm_agent.py --schedule
+  Runs the Slack digest automatically every Monday at 09:00 and keeps
+  the process alive to fire on subsequent weeks.
 """
 
 import os
@@ -20,6 +27,8 @@ if hasattr(sys.stdout, "reconfigure"):
 
 import argparse
 import json
+import time
+import schedule
 import requests
 from dotenv import load_dotenv
 import anthropic
@@ -28,9 +37,10 @@ import anthropic
 
 load_dotenv()
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-JIRA_EMAIL        = os.getenv("JIRA_EMAIL")
-JIRA_API_TOKEN    = os.getenv("JIRA_API_TOKEN")
+ANTHROPIC_API_KEY  = os.getenv("ANTHROPIC_API_KEY")
+JIRA_EMAIL         = os.getenv("JIRA_EMAIL")
+JIRA_API_TOKEN     = os.getenv("JIRA_API_TOKEN")
+SLACK_WEBHOOK_URL  = os.getenv("SLACK_WEBHOOK_URL")
 
 JIRA_DOMAIN       = "saranshsworkspace-35970721.atlassian.net"
 JIRA_PROJECT_KEY  = "KAN"
@@ -38,10 +48,12 @@ CLAUDE_MODEL      = "claude-sonnet-4-6"
 
 # ─── Validation ───────────────────────────────────────────────────────────────
 
-def validate_env() -> None:
+def validate_env(slack: bool = False) -> None:
     """Exit early with a clear message if any required variable is missing."""
-    missing = [v for v in ("ANTHROPIC_API_KEY", "JIRA_EMAIL", "JIRA_API_TOKEN")
-               if not os.getenv(v)]
+    required = ["ANTHROPIC_API_KEY", "JIRA_EMAIL", "JIRA_API_TOKEN"]
+    if slack:
+        required.append("SLACK_WEBHOOK_URL")
+    missing = [v for v in required if not os.getenv(v)]
     if missing:
         print(f"[error] Missing environment variables: {', '.join(missing)}")
         print("        Copy .env.example → .env and fill in your credentials.")
@@ -330,6 +342,56 @@ def print_ticket_preview(ticket: dict) -> None:
         print(f"    {i}. {ac}")
     print(f"\n{'=' * width}")
 
+# ─── Slack ────────────────────────────────────────────────────────────────────
+
+def format_summary_for_slack(summary: str, issue_count: int) -> str:
+    """
+    Convert the Claude markdown summary into Slack-flavoured markdown.
+
+    Slack uses *bold* (same as markdown) but does not render ## headings,
+    so section headers are converted to bold lines. Markdown bullet `-`
+    becomes the Slack-idiomatic bullet `•`.
+    """
+    lines = []
+    for line in summary.splitlines():
+        stripped = line.lstrip()
+        # ## Heading → *Heading*
+        if stripped.startswith("## "):
+            line = "*" + stripped[3:] + "*"
+        # --- horizontal rule → blank line
+        elif stripped == "---":
+            line = ""
+        # - bullet → • bullet
+        elif stripped.startswith("- "):
+            line = "•" + line[line.index("- ") + 1:]
+        lines.append(line)
+
+    body = "\n".join(lines).strip()
+    header = f":clipboard: *AI PM Sprint Digest — {JIRA_PROJECT_KEY} | {issue_count} issues*\n\n"
+    return header + body
+
+
+def send_slack_digest(text: str) -> bool:
+    """POST the formatted digest to the Slack incoming webhook. Returns True on success."""
+    payload = {"text": text}
+    try:
+        response = requests.post(
+            SLACK_WEBHOOK_URL,
+            json=payload,
+            timeout=15,
+        )
+        response.raise_for_status()
+        return True
+    except requests.exceptions.HTTPError as exc:
+        print(f"[error] Slack webhook returned an error: {exc}")
+        return False
+    except requests.exceptions.ConnectionError:
+        print("[error] Could not reach Slack. Check your webhook URL and internet connection.")
+        return False
+    except requests.exceptions.Timeout:
+        print("[error] Slack request timed out.")
+        return False
+
 # ─── Modes ────────────────────────────────────────────────────────────────────
 
 def run_sprint_summary() -> None:
@@ -391,6 +453,42 @@ def run_story_drafter() -> None:
     if url:
         print(f"\n[Story Drafter] Done!  {url}\n")
 
+def run_slack_digest() -> None:
+    """Slack mode: generate a sprint summary and post it to Slack."""
+    print(f"\n[Slack Digest] Fetching issues from JIRA project: {JIRA_PROJECT_KEY} …")
+
+    issues = fetch_jira_issues()
+    print(f"[Slack Digest] Fetched {len(issues)} issue(s). Sending to Claude for analysis …")
+
+    issues_text = format_issues_for_prompt(issues)
+
+    try:
+        summary = generate_sprint_summary(issues_text)
+    except anthropic.AuthenticationError:
+        print("[error] Invalid ANTHROPIC_API_KEY. Check your .env file.")
+        sys.exit(1)
+    except anthropic.APIError as exc:
+        print(f"[error] Claude API error: {exc}")
+        sys.exit(1)
+
+    slack_text = format_summary_for_slack(summary, len(issues))
+    print(f"[Slack Digest] Posting to Slack …")
+
+    if send_slack_digest(slack_text):
+        print("[Slack Digest] Digest sent to Slack!")
+
+
+def run_schedule() -> None:
+    """Schedule mode: post the Slack digest every Monday at 09:00."""
+    print("[Scheduler] Starting — will post Slack digest every Monday at 09:00.")
+    print("            Leave this process running. Press Ctrl+C to stop.\n")
+
+    schedule.every().monday.at("09:00").do(run_slack_digest)
+
+    while True:
+        schedule.run_pending()
+        time.sleep(30)
+
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -399,8 +497,10 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
-            "  python pm_agent.py           # sprint summary\n"
-            "  python pm_agent.py --draft   # story drafter\n"
+            "  python pm_agent.py            # sprint summary\n"
+            "  python pm_agent.py --draft    # story drafter\n"
+            "  python pm_agent.py --slack    # send digest to Slack now\n"
+            "  python pm_agent.py --schedule # post to Slack every Monday at 09:00\n"
         ),
     )
     parser.add_argument(
@@ -408,12 +508,27 @@ def main() -> None:
         action="store_true",
         help="Turn a plain-English idea into a structured JIRA ticket",
     )
+    parser.add_argument(
+        "--slack",
+        action="store_true",
+        help="Generate a sprint summary and post it to Slack via webhook",
+    )
+    parser.add_argument(
+        "--schedule",
+        action="store_true",
+        help="Post the Slack digest automatically every Monday at 09:00",
+    )
     args = parser.parse_args()
 
-    validate_env()
+    needs_slack = args.slack or args.schedule
+    validate_env(slack=needs_slack)
 
     if args.draft:
         run_story_drafter()
+    elif args.slack:
+        run_slack_digest()
+    elif args.schedule:
+        run_schedule()
     else:
         run_sprint_summary()
 
