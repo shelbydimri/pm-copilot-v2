@@ -1,5 +1,7 @@
 # PM Copilot — AI-powered JIRA toolkit
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-pm--copilot.onrender.com-7c3aed?style=for-the-badge&logo=render&logoColor=white)](https://pm-copilot-9iw0.onrender.com)
+
 Four CLI tools that replace common PM busywork: sprint summaries, ticket drafting, Slack digests, and metrics anomaly detection — powered by Claude.
 
 ---
