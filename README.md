@@ -40,6 +40,9 @@ npx prisma db push
 npm run dev
 ```
 
+<img width="1504" height="965" alt="image" src="https://github.com/user-attachments/assets/e40b2c85-576f-41a4-8bfd-223609643057" />
+
+
 ## Built by
 
 Shelby Dimri — PM turned builder.
