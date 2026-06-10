@@ -41,6 +41,14 @@ npm run dev
 ```
 <img width="1532" height="876" alt="image" src="https://github.com/user-attachments/assets/7ad21be2-7bc7-4ba2-be69-6e7b1a3f9fdd" />
 
+<img width="1466" height="868" alt="image" src="https://github.com/user-attachments/assets/0eaeb183-1dc1-4bbf-8a33-c60da57fdcb8" />
+<img width="1510" height="837" alt="image" src="https://github.com/user-attachments/assets/3836ec9a-7028-485c-81d4-63753c1dbd37" />
+<img width="1507" height="816" alt="image" src="https://github.com/user-attachments/assets/9ff31d63-389d-4d0a-bd1d-e88ab6aca59c" />
+<img width="1481" height="726" alt="image" src="https://github.com/user-attachments/assets/1a07fca3-4aa3-443d-ac13-20342561e13f" />
+
+
+
+
 
 ## Built by
 
