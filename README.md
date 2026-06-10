@@ -1,4 +1,4 @@
-# PM Copilot v2
+<img width="1532" height="876" alt="image" src="https://github.com/user-attachments/assets/7940174d-a005-4ed3-b8fd-322c17103491" /># PM Copilot v2
 
 > Your conversations are where decisions live. PM Copilot makes sure none of them get lost.
 
@@ -39,8 +39,7 @@ cp .env.local.example .env.local
 npx prisma db push
 npm run dev
 ```
-
-<img width="1504" height="965" alt="image" src="https://github.com/user-attachments/assets/e40b2c85-576f-41a4-8bfd-223609643057" />
+<img width="1532" height="876" alt="image" src="https://github.com/user-attachments/assets/7ad21be2-7bc7-4ba2-be69-6e7b1a3f9fdd" />
 
 
 ## Built by
